@@ -10,6 +10,18 @@ public class OtpRequest {
     private String loginId;
     private String otpSystem;
 
+    public OtpRequest() {
+    }
+
+    public OtpRequest(String txnId, List<String> scope, String loginHint,
+                      String loginId, String otpSystem) {
+        this.txnId = txnId;
+        this.scope = scope;
+        this.loginHint = loginHint;
+        this.loginId = loginId;
+        this.otpSystem = otpSystem;
+    }
+
     public String getTxnId() {
         return txnId;
     }

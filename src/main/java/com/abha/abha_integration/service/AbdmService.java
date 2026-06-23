@@ -1,18 +1,34 @@
 package com.abha.abha_integration.service;
 
+import com.abha.abha_integration.client.AbdmFeignClient;
+import com.abha.abha_integration.dto.CertificateResponse;
+import com.abha.abha_integration.dto.OtpRequest;
+import com.abha.abha_integration.dto.OtpResponse;
+import com.abha.abha_integration.dto.TokenRequest;
+import com.abha.abha_integration.dto.TokenResponse;
+import com.abha.abha_integration.dto.VerifyOtpRequest;
+import com.abha.abha_integration.dto.VerifyOtpResponse;
 import com.abha.abha_integration.util.EncryptionUtil;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import feign.FeignException;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.*;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestTemplate;
 
 import java.time.Instant;
 import java.util.*;
+import java.net.URI;
 
 @Service
 public class AbdmService {
 
-    private final RestTemplate restTemplate;
+    private static final URI GATEWAY_BASE_URL =
+            URI.create("https://dev.abdm.gov.in");
+    private static final URI ABHA_BASE_URL =
+            URI.create("https://abhasbx.abdm.gov.in");
+
+    private final AbdmFeignClient abdmFeignClient;
+    private final ObjectMapper objectMapper;
 
     @Value("${abdm.client.id}")
     private String clientId;
@@ -20,74 +36,59 @@ public class AbdmService {
     @Value("${abdm.client.secret}")
     private String clientSecret;
 
-    public AbdmService(RestTemplate restTemplate) {
-        this.restTemplate = restTemplate;
+    public AbdmService(AbdmFeignClient abdmFeignClient,
+                       ObjectMapper objectMapper) {
+        this.abdmFeignClient = abdmFeignClient;
+        this.objectMapper = objectMapper;
     }
 
     // STEP 1
     public String generateToken() {
 
-        String url =
-                "https://dev.abdm.gov.in/gateway/v0.5/sessions";
+        try {
+            TokenResponse response =
+                    abdmFeignClient.generateToken(
+                            GATEWAY_BASE_URL,
+                            new TokenRequest(clientId,
+                                    clientSecret));
 
-        Map<String,String> body =
-                new HashMap<>();
+            if (response == null || response.getAccessToken() == null) {
+                throw new IllegalStateException(
+                        "ABDM token response did not contain accessToken");
+            }
 
-        body.put("clientId", clientId);
-        body.put("clientSecret", clientSecret);
-
-        HttpHeaders headers =
-                new HttpHeaders();
-
-        headers.setContentType(
-                MediaType.APPLICATION_JSON);
-
-        HttpEntity<Map<String,String>> request =
-                new HttpEntity<>(body, headers);
-
-        ResponseEntity<Map> response =
-                restTemplate.postForEntity(
-                        url,
-                        request,
-                        Map.class);
-
-        return response.getBody()
-                .get("accessToken")
-                .toString();
+            return response.getAccessToken();
+        }
+        catch (FeignException e) {
+            throw buildFeignException(
+                    "Unable to generate ABDM token",
+                    e);
+        }
     }
 
     // STEP 2
     public String getPublicKey(String token){
 
-        String url =
-                "https://abhasbx.abdm.gov.in/abha/api/v3/profile/public/certificate";
+        try {
+            CertificateResponse response =
+                    abdmFeignClient.getPublicKey(
+                            ABHA_BASE_URL,
+                            bearerToken(token),
+                            requestId(),
+                            timestamp());
 
-        HttpHeaders headers =
-                new HttpHeaders();
+            if (response == null || response.getPublicKey() == null) {
+                throw new IllegalStateException(
+                        "ABDM certificate response did not contain publicKey");
+            }
 
-        headers.setBearerAuth(token);
-
-        headers.add(
-                "REQUEST-ID",
-                UUID.randomUUID().toString());
-
-        headers.add(
-                "TIMESTAMP",
-                Instant.now().toString());
-
-        HttpEntity<String> entity =
-                new HttpEntity<>(headers);
-
-        ResponseEntity<Map> response =
-                restTemplate.exchange(
-                        url,
-                        HttpMethod.GET,
-                        entity,
-                        Map.class);
-
-        return response.getBody()
-                .get("publicKey")
-                .toString();
+            return response.getPublicKey();
+        }
+        catch (FeignException e) {
+            throw buildFeignException(
+                    "Unable to fetch ABDM public key",
+                    e);
+        }
     }
 
     // STEP 3 + STEP 4
@@ -105,48 +106,115 @@ public class AbdmService {
                         aadhaar,
                         publicKey);
 
-        String url =
-                "https://abhasbx.abdm.gov.in/abha/api/v3/enrollment/request/otp";
+        OtpRequest request =
+                new OtpRequest(
+                        "",
+                        List.of("abha-enrol"),
+                        "aadhaar",
+                        encrypted,
+                        "aadhaar");
 
-        Map<String,Object> body =
-                new HashMap<>();
+        try {
+            OtpResponse response =
+                    abdmFeignClient.generateOtp(
+                            ABHA_BASE_URL,
+                            bearerToken(token),
+                            requestId(),
+                            timestamp(),
+                            request);
 
-        body.put("txnId","");
-        body.put("scope",
-                List.of("abha-enrol"));
-        body.put("loginHint",
-                "aadhaar");
-        body.put("loginId",
-                encrypted);
-        body.put("otpSystem",
-                "aadhaar");
+            return toJson(response);
+        }
+        catch (FeignException e) {
+            throw buildFeignException(
+                    "Unable to generate ABDM OTP",
+                    e);
+        }
+    }
 
-        HttpHeaders headers =
-                new HttpHeaders();
+    public String verifyOtp(
+        String otp,
+        String txnId,
+        String mobile)
+        throws Exception {
 
-        headers.setBearerAuth(token);
+        String token =
+                generateToken();
 
-        headers.setContentType(
-                MediaType.APPLICATION_JSON);
+        String publicKey =
+                getPublicKey(token);
 
-        headers.add(
-                "REQUEST-ID",
-                UUID.randomUUID().toString());
+        String encryptedOtp =
+                EncryptionUtil.encrypt(
+                        otp,
+                        publicKey);
 
-        headers.add(
-                "TIMESTAMP",
-                Instant.now().toString());
+        VerifyOtpRequest request =
+                new VerifyOtpRequest(
+                        new VerifyOtpRequest.AuthData(
+                                List.of("otp"),
+                                new VerifyOtpRequest.Otp(
+                                        txnId,
+                                        encryptedOtp,
+                                        mobile)),
+                        new VerifyOtpRequest.Consent(
+                                "abha-enrollment",
+                                "1.4"));
 
-        HttpEntity<Map<String,Object>> entity =
-                new HttpEntity<>(body,
-                        headers);
+        try {
+            VerifyOtpResponse response =
+                    abdmFeignClient.verifyOtp(
+                            ABHA_BASE_URL,
+                            bearerToken(token),
+                            requestId(),
+                            timestamp(),
+                            request);
 
-        ResponseEntity<String> response =
-                restTemplate.postForEntity(
-                        url,
-                        entity,
-                        String.class);
+            return toJson(response);
+        }
+        catch (FeignException e) {
+            throw buildFeignException(
+                    "Unable to verify ABDM OTP",
+                    e);
+        }
+    }
 
-        return response.getBody();
+    private String bearerToken(String token) {
+        return "Bearer " + token;
+    }
+
+    private String requestId() {
+        return UUID.randomUUID().toString();
+    }
+
+    private String timestamp() {
+        return Instant.now().toString();
+    }
+
+    private String toJson(Object value) {
+        try {
+            return objectMapper.writeValueAsString(value);
+        }
+        catch (JsonProcessingException e) {
+            throw new IllegalStateException(
+                    "Unable to serialize ABDM response",
+                    e);
+        }
+    }
+
+    private RuntimeException buildFeignException(String message,
+                                                 FeignException e) {
+        String responseBody =
+                e.contentUTF8();
+
+        if (responseBody != null && !responseBody.isBlank()) {
+            return new IllegalStateException(
+                    message + " : " + responseBody,
+                    e);
+        }
+
+        return new IllegalStateException(
+                message + " : HTTP " + e.status(),
+                e);
     }
 }
