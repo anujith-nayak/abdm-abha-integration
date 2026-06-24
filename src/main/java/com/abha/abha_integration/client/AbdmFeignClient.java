@@ -10,6 +10,7 @@ import com.abha.abha_integration.dto.VerifyOtpResponse;
 import java.net.URI;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -51,4 +52,12 @@ public interface AbdmFeignClient {
             @RequestHeader("REQUEST-ID") String requestId,
             @RequestHeader("TIMESTAMP") String timestamp,
             @RequestBody VerifyOtpRequest request);
+
+    @GetMapping("/abha/api/v3/profile/account/abha-card")
+    ResponseEntity<byte[]> downloadAbhaCard(
+            URI baseUrl,
+            @RequestHeader("Authorization") String authorization,
+            @RequestHeader("X-Token") String xToken,
+            @RequestHeader("REQUEST-ID") String requestId,
+            @RequestHeader("TIMESTAMP") String timestamp);
 }

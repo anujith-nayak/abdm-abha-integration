@@ -1,7 +1,11 @@
+import { useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import CheckCircleOutlineOutlinedIcon from '@mui/icons-material/CheckCircleOutlineOutlined';
+import DownloadOutlinedIcon from '@mui/icons-material/DownloadOutlined';
 import HomeOutlinedIcon from '@mui/icons-material/HomeOutlined';
 import { Box, Button, Container, Divider, Paper, Stack, Typography } from '@mui/material';
+import Loader from '../components/Loader.jsx';
+import { downloadAbhaCard } from '../services/api.js';
 
 const getNestedValue = (source, keys) => {
   if (!source || typeof source !== 'object') {
@@ -26,10 +30,11 @@ const getNestedValue = (source, keys) => {
   return '';
 };
 
-function Success() {
+function Success({ showAlert }) {
   const navigate = useNavigate();
   const { state } = useLocation();
   const abhaDetails = state?.abhaDetails || {};
+  const [downloading, setDownloading] = useState(false);
 
   const abhaNumber = getNestedValue(abhaDetails, [
     'abhaNumber',
@@ -54,6 +59,26 @@ function Success() {
     ['Gender', getNestedValue(abhaDetails, ['gender'])],
     ['Date of Birth', getNestedValue(abhaDetails, ['dob', 'dateOfBirth', 'yearOfBirth'])]
   ].filter(([, value]) => Boolean(value));
+
+  const handleDownload = async () => {
+    setDownloading(true);
+    try {
+      const { file, filename } = await downloadAbhaCard();
+      const downloadUrl = window.URL.createObjectURL(file);
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(downloadUrl);
+      showAlert('ABHA Card downloaded successfully.', 'success');
+    } catch (error) {
+      showAlert(error.message, 'error');
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   return (
     <main className="page compact-page">
@@ -86,13 +111,24 @@ function Success() {
                 </Typography>
               )}
             </Stack>
-            <Button
-              variant="contained"
-              onClick={() => navigate('/')}
-              startIcon={<HomeOutlinedIcon />}
-            >
-              Start New Registration
-            </Button>
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
+              <Button
+                variant="contained"
+                onClick={handleDownload}
+                disabled={downloading}
+                startIcon={<DownloadOutlinedIcon />}
+              >
+                Download ABHA Card
+              </Button>
+              <Button
+                variant="outlined"
+                onClick={() => navigate('/')}
+                startIcon={<HomeOutlinedIcon />}
+              >
+                Start New Registration
+              </Button>
+            </Stack>
+            {downloading && <Loader message="Downloading ABHA Card..." />}
           </Stack>
         </Paper>
       </Container>

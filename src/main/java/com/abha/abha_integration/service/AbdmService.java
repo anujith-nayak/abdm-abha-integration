@@ -13,6 +13,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import feign.FeignException;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
@@ -29,6 +30,7 @@ public class AbdmService {
 
     private final AbdmFeignClient abdmFeignClient;
     private final ObjectMapper objectMapper;
+    private volatile String currentXToken;
 
     @Value("${abdm.client.id}")
     private String clientId;
@@ -170,6 +172,7 @@ public class AbdmService {
                             timestamp(),
                             request);
 
+            currentXToken = extractXToken(response);
             return toJson(response);
         }
         catch (FeignException e) {
@@ -177,6 +180,53 @@ public class AbdmService {
                     "Unable to verify ABDM OTP",
                     e);
         }
+    }
+
+    public ResponseEntity<byte[]> downloadAbhaCard() {
+        String xToken = currentXToken;
+        if (xToken == null || xToken.isBlank()) {
+            throw new IllegalStateException(
+                    "No authenticated ABHA session is available. Please complete OTP verification first.");
+        }
+
+        String accessToken = generateToken();
+
+        try {
+            return abdmFeignClient.downloadAbhaCard(
+                    ABHA_BASE_URL,
+                    bearerToken(accessToken),
+                    bearerToken(xToken),
+                    requestId(),
+                    timestamp());
+        }
+        catch (FeignException e) {
+            throw buildFeignException(
+                    "Unable to download ABHA card",
+                    e);
+        }
+    }
+
+    private String extractXToken(VerifyOtpResponse response) {
+        if (response == null) {
+            return null;
+        }
+
+        Object tokens = response.getAdditionalProperties().get("tokens");
+        if (tokens instanceof Map<?, ?> tokenValues) {
+            Object token = tokenValues.get("token");
+            if (token instanceof String value && !value.isBlank()) {
+                return value;
+            }
+        }
+
+        for (String key : List.of("token", "xToken", "X-Token")) {
+            Object token = response.getAdditionalProperties().get(key);
+            if (token instanceof String value && !value.isBlank()) {
+                return value;
+            }
+        }
+
+        return null;
     }
 
     private String bearerToken(String token) {

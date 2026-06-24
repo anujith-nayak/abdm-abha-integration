@@ -74,3 +74,35 @@ export const resendOtp = async ({ aadhaar, txnId }) => {
     throw new Error(normalizeError(error, 'Unable to resend OTP.'));
   }
 };
+
+const getDownloadFilename = (contentDisposition, contentType) => {
+  const filenameMatch = contentDisposition?.match(/filename="?([^";]+)"?/i);
+  if (filenameMatch?.[1]) {
+    return filenameMatch[1];
+  }
+
+  return contentType?.includes('pdf') ? 'ABHA_Card.pdf' : 'ABHA_Card.png';
+};
+
+export const downloadAbhaCard = async () => {
+  try {
+    const response = await apiClient.get('/api/abha/download-card', {
+      responseType: 'blob'
+    });
+    const contentType = response.headers['content-type'] || response.data.type;
+
+    return {
+      file: response.data,
+      filename: getDownloadFilename(response.headers['content-disposition'], contentType)
+    };
+  } catch (error) {
+    if (error.response?.data instanceof Blob) {
+      const message = await error.response.data.text();
+      if (message.trim()) {
+        throw new Error(message);
+      }
+    }
+
+    throw new Error(normalizeError(error, 'Unable to download ABHA card.'));
+  }
+};

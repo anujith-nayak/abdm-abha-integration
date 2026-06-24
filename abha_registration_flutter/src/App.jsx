@@ -27,7 +27,7 @@ function App() {
       <Routes>
         <Route path="/" element={<Home showAlert={showAlert} />} />
         <Route path="/verify-otp" element={<VerifyOtp showAlert={showAlert} />} />
-        <Route path="/success" element={<Success />} />
+        <Route path="/success" element={<Success showAlert={showAlert} />} />
       </Routes>
       <Snackbar
         open={alert.open}
