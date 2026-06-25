@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import HealthAndSafetyOutlinedIcon from '@mui/icons-material/HealthAndSafetyOutlined';
 import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
-import { Box, Container, Grid, Paper, Stack, Typography } from '@mui/material';
+import { Box, Button, Container, Grid, Paper, Stack, Typography } from '@mui/material';
 import AadhaarForm from '../components/AadhaarForm.jsx';
 import Loader from '../components/Loader.jsx';
 import { generateOtp } from '../services/api.js';
@@ -106,6 +106,18 @@ function Home({ showAlert }) {
                   onChange={handleAadhaarChange}
                   onSubmit={handleSubmit}
                 />
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, pt: 2 }}>
+                  <Typography variant="body2" color="text.secondary">
+                    Want to scan a facility QR code instead? Use the new QR scan screen.
+                  </Typography>
+                  <Button
+                    variant="contained"
+                    color="secondary"
+                    onClick={() => navigate('/scan-facility-qr')}
+                  >
+                    Scan Health Facility QR
+                  </Button>
+                </Box>
                 {loading && <Loader message="Generating OTP..." />}
               </Stack>
             </Paper>

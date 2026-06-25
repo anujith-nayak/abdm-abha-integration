@@ -14,6 +14,7 @@
     "@mui/icons-material": "^6.1.6",
     "@mui/material": "^6.1.6",
     "axios": "^1.7.7",
+    "html5-qrcode": "^2.3.8",
     "vite": "^5.4.10",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",

@@ -5,6 +5,8 @@ import Navbar from './components/Navbar.jsx';
 import Home from './pages/Home.jsx';
 import VerifyOtp from './pages/VerifyOtp.jsx';
 import Success from './pages/Success.jsx';
+import ScanUserAbhaQr from './pages/ScanUserAbhaQr.jsx';
+import ScanHealthFacilityQr from './pages/ScanHealthFacilityQr.jsx';
 
 function App() {
   const [alert, setAlert] = useState({
@@ -28,6 +30,8 @@ function App() {
         <Route path="/" element={<Home showAlert={showAlert} />} />
         <Route path="/verify-otp" element={<VerifyOtp showAlert={showAlert} />} />
         <Route path="/success" element={<Success showAlert={showAlert} />} />
+        <Route path="/scan-user-abha-qr" element={<ScanUserAbhaQr showAlert={showAlert} />} />
+        <Route path="/scan-facility-qr" element={<ScanHealthFacilityQr showAlert={showAlert} />} />
       </Routes>
       <Snackbar
         open={alert.open}

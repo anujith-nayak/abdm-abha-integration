@@ -75,6 +75,37 @@ body {
   border-radius: 8px;
 }
 
+.nav-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+}
+
+.scan-actions {
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.scanner-area {
+  min-height: 320px;
+  border: 1px solid rgba(16, 42, 67, 0.12);
+  border-radius: 16px;
+  background: #f8fbfd;
+  padding: 18px;
+}
+
+.qr-result {
+  width: 100%;
+  margin: 12px 0 0;
+  padding: 16px;
+  border-radius: 12px;
+  background: #eef7fb;
+  border: 1px solid rgba(8, 127, 140, 0.16);
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .page {
   display: flex;
   align-items: center;
