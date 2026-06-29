@@ -63,6 +63,43 @@ export const verifyOtp = async ({ otp, txnId, mobile }) => {
   }
 };
 
+export const searchAbhaAddress = async (abhaAddress) => {
+  try {
+    const response = await apiClient.post('/api/abha/address/search', {
+      abhaAddress
+    });
+    return normalizeData(response.data);
+  } catch (error) {
+    throw new Error(normalizeError(error, 'Unable to search ABHA address.'));
+  }
+};
+
+export const requestAbhaAddressOtp = async ({ abhaAddress, txnId }) => {
+  try {
+    const response = await apiClient.post('/api/abha/address/request-otp', {
+      abhaAddress,
+      txnId
+    });
+    return normalizeData(response.data);
+  } catch (error) {
+    throw new Error(normalizeError(error, 'Unable to request ABHA address OTP.'));
+  }
+};
+
+export const verifyAbhaAddressOtp = async ({ abhaAddress, txnId, otp, linkedBy }) => {
+  try {
+    const response = await apiClient.post('/api/abha/address/verify', {
+      abhaAddress,
+      txnId,
+      otp,
+      linkedBy
+    });
+    return normalizeData(response.data);
+  } catch (error) {
+    throw new Error(normalizeError(error, 'Unable to verify ABHA address OTP.'));
+  }
+};
+
 export const resendOtp = async ({ aadhaar, txnId }) => {
   try {
     const response = await apiClient.post('/api/abha/resendOtp', {
@@ -104,5 +141,23 @@ export const downloadAbhaCard = async () => {
     }
 
     throw new Error(normalizeError(error, 'Unable to download ABHA card.'));
+  }
+};
+
+export const registerPatient = async (payload) => {
+  try {
+    const response = await apiClient.post('/api/patients/register', payload);
+    return response.data;
+  } catch (error) {
+    throw new Error(normalizeError(error, 'Unable to register or link patient.'));
+  }
+};
+
+export const sendForManualReview = async (payload) => {
+  try {
+    const response = await apiClient.post('/api/patients/manual-review', payload);
+    return response.data;
+  } catch (error) {
+    throw new Error(normalizeError(error, 'Unable to send patient for manual review.'));
   }
 };

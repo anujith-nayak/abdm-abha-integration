@@ -8,6 +8,7 @@ import com.abha.abha_integration.dto.TokenResponse;
 import com.abha.abha_integration.dto.VerifyOtpRequest;
 import com.abha.abha_integration.dto.VerifyOtpResponse;
 import java.net.URI;
+import java.util.Map;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -60,4 +61,34 @@ public interface AbdmFeignClient {
             @RequestHeader("X-Token") String xToken,
             @RequestHeader("REQUEST-ID") String requestId,
             @RequestHeader("TIMESTAMP") String timestamp);
+
+    @PostMapping(
+            value = "/abha/api/v3/phr/web/login/abha/search",
+            consumes = MediaType.APPLICATION_JSON_VALUE)
+    Map<String, Object> searchAbhaAddress(
+            URI baseUrl,
+            @RequestHeader("Authorization") String authorization,
+            @RequestHeader("REQUEST-ID") String requestId,
+            @RequestHeader("TIMESTAMP") String timestamp,
+            @RequestBody Map<String, Object> request);
+
+    @PostMapping(
+            value = "/abha/api/v3/phr/web/login/abha/request/otp",
+            consumes = MediaType.APPLICATION_JSON_VALUE)
+    Map<String, Object> requestAbhaAddressOtp(
+            URI baseUrl,
+            @RequestHeader("Authorization") String authorization,
+            @RequestHeader("REQUEST-ID") String requestId,
+            @RequestHeader("TIMESTAMP") String timestamp,
+            @RequestBody Map<String, Object> request);
+
+    @PostMapping(
+            value = "/abha/api/v3/phr/web/login/abha/verify",
+            consumes = MediaType.APPLICATION_JSON_VALUE)
+    Map<String, Object> verifyAbhaAddressOtp(
+            URI baseUrl,
+            @RequestHeader("Authorization") String authorization,
+            @RequestHeader("REQUEST-ID") String requestId,
+            @RequestHeader("TIMESTAMP") String timestamp,
+            @RequestBody Map<String, Object> request);
 }

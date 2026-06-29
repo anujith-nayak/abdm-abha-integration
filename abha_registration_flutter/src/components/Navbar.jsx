@@ -28,7 +28,6 @@ function Navbar() {
               variant="contained"
               color="secondary"
               size="small"
-
             >
               Scan User ABHA QR
             </Button>

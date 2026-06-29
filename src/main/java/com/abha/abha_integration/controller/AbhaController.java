@@ -1,10 +1,16 @@
 package com.abha.abha_integration.controller;
 
+import com.abha.abha_integration.dto.AbhaAddressOtpRequest;
+import com.abha.abha_integration.dto.AbhaAddressSearchRequest;
+import com.abha.abha_integration.dto.AbhaAddressVerifyRequest;
+import com.abha.abha_integration.dto.AbhaAddressVerifyResult;
 import com.abha.abha_integration.dto.AadhaarRequest;
+import com.abha.abha_integration.dto.PatientProfileDto;
 import com.abha.abha_integration.dto.ResendOtpRequest;
 import com.abha.abha_integration.dto.VerifyOtpInputRequest;
 import com.abha.abha_integration.service.AbdmService;
 import java.nio.charset.StandardCharsets;
+import java.util.Map;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -94,6 +100,74 @@ public class AbhaController {
             return ResponseEntity
                     .status(HttpStatus.BAD_GATEWAY)
                     .body("ERROR : " + e.getMessage());
+        }
+    }
+
+    @PostMapping("/api/abha/address/search")
+    public ResponseEntity<?> searchAbhaAddress(
+            @RequestBody AbhaAddressSearchRequest request) {
+
+        try {
+            return ResponseEntity.ok(
+                    abdmService.searchAbhaAddress(request.getAbhaAddress()));
+        }
+        catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity
+                    .status(HttpStatus.BAD_GATEWAY)
+                    .body(Map.of("message", "ERROR : " + e.getMessage()));
+        }
+    }
+
+    @PostMapping("/api/abha/address/request-otp")
+    public ResponseEntity<?> requestAbhaAddressOtp(
+            @RequestBody AbhaAddressOtpRequest request) {
+
+        try {
+            return ResponseEntity.ok(
+                    abdmService.requestAbhaAddressOtp(
+                            request.getAbhaAddress(),
+                            request.getTxnId()));
+        }
+        catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity
+                    .status(HttpStatus.BAD_GATEWAY)
+                    .body(Map.of("message", "ERROR : " + e.getMessage()));
+        }
+    }
+
+    /**
+     * Verifies an ABHA Address OTP via the ABDM API and returns the verified
+     * profile. Patient registration is a separate workflow and is NOT invoked here.
+     */
+    @PostMapping("/api/abha/address/verify")
+    public ResponseEntity<?> verifyAbhaAddressOtp(
+            @RequestBody AbhaAddressVerifyRequest request) {
+
+        try {
+            Map<String, Object> abdmResponse =
+                    abdmService.verifyAbhaAddressOtp(
+                            request.getAbhaAddress(),
+                            request.getTxnId(),
+                            request.getOtp());
+
+            PatientProfileDto abhaProfile =
+                    abdmService.extractVerifiedProfile(
+                            abdmResponse,
+                            request.getAbhaAddress());
+
+            return ResponseEntity.ok(
+                    new AbhaAddressVerifyResult(
+                            "ABHA Address verified successfully.",
+                            abhaProfile,
+                            abdmResponse));
+        }
+        catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity
+                    .status(HttpStatus.BAD_GATEWAY)
+                    .body(Map.of("message", "ERROR : " + e.getMessage()));
         }
     }
 

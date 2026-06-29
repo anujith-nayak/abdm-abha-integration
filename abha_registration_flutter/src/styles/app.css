@@ -199,6 +199,23 @@ body {
   border-radius: 8px;
 }
 
+.comparison-table {
+  border: 1px solid rgba(16, 42, 67, 0.08);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.comparison-table .MuiTableCell-head {
+  color: #102a43;
+  font-weight: 700;
+  background: #eef7fb;
+}
+
+.mismatch-row .MuiTableCell-root {
+  background: #fff4e5;
+  border-color: #ffd8a8;
+}
+
 @media (max-width: 700px) {
   .navbar-toolbar {
     min-height: 64px;
@@ -225,5 +242,9 @@ body {
   .detail-row {
     grid-template-columns: 1fr;
     gap: 4px;
+  }
+
+  .nav-actions {
+    display: none;
   }
 }

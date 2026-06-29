@@ -4,6 +4,7 @@ import com.abha.abha_integration.client.AbdmFeignClient;
 import com.abha.abha_integration.dto.CertificateResponse;
 import com.abha.abha_integration.dto.OtpRequest;
 import com.abha.abha_integration.dto.OtpResponse;
+import com.abha.abha_integration.dto.PatientProfileDto;
 import com.abha.abha_integration.dto.TokenRequest;
 import com.abha.abha_integration.dto.TokenResponse;
 import com.abha.abha_integration.dto.VerifyOtpRequest;
@@ -31,6 +32,12 @@ public class AbdmService {
     private final AbdmFeignClient abdmFeignClient;
     private final ObjectMapper objectMapper;
     private volatile String currentXToken;
+    private volatile VerifyOtpResponse currentVerifiedProfile;
+
+    // Session state for the ABHA address login flow.
+    // Cached so that Search, Request OTP and Verify all use the same token + key.
+    private volatile String abhaLoginAccessToken;
+    private volatile String abhaLoginPublicKey;
 
     @Value("${abdm.client.id}")
     private String clientId;
@@ -173,6 +180,7 @@ public class AbdmService {
                             request);
 
             currentXToken = extractXToken(response);
+            currentVerifiedProfile = response;
             return toJson(response);
         }
         catch (FeignException e) {
@@ -206,6 +214,196 @@ public class AbdmService {
         }
     }
 
+    public Map<String, Object> searchAbhaAddress(String abhaAddress) {
+        if (abhaAddress == null || abhaAddress.isBlank()) {
+            throw new IllegalArgumentException("ABHA Address is required.");
+        }
+
+        // Seed a fresh session token for this ABHA login flow.
+        // The same token will be reused by Request OTP and Verify OTP.
+        String accessToken = generateToken();
+        abhaLoginAccessToken = accessToken;
+        abhaLoginPublicKey = null;   // reset; will be fetched on first encryption need
+
+        Map<String, Object> request = new LinkedHashMap<>();
+        request.put("scope", List.of("abha-address-login"));
+        request.put("abhaAddress", abhaAddress);
+
+        try {
+            System.out.println("[ABDM] SEARCH ABHA REQUEST  URL  : "
+                    + ABHA_BASE_URL + "/abha/api/v3/phr/web/login/abha/search");
+            System.out.println("[ABDM] SEARCH ABHA REQUEST  BODY : " + safeJson(request));
+
+            Map<String, Object> response = abdmFeignClient.searchAbhaAddress(
+                    ABHA_BASE_URL,
+                    bearerToken(accessToken),
+                    requestId(),
+                    timestamp(),
+                    request);
+
+            System.out.println("[ABDM] SEARCH ABHA RESPONSE BODY : " + safeJson(response));
+
+            return response;
+        }
+        catch (FeignException e) {
+            System.out.println("[ABDM] SEARCH ABHA ERROR  STATUS : " + e.status());
+            System.out.println("[ABDM] SEARCH ABHA ERROR  BODY   : " + e.contentUTF8());
+            throw buildFeignException("Unable to search ABHA Address", e);
+        }
+    }
+
+    public Map<String, Object> requestAbhaAddressOtp(String abhaAddress,
+                                                     String txnId)
+            throws Exception {
+        if (abhaAddress == null || abhaAddress.isBlank()) {
+            throw new IllegalArgumentException("ABHA Address is required.");
+        }
+
+        // Reuse the session token seeded by searchAbhaAddress; fall back to a new token
+        // only if called in isolation (e.g. direct API test).
+        String accessToken = abhaLoginAccessToken != null ? abhaLoginAccessToken : generateToken();
+        abhaLoginAccessToken = accessToken;
+
+        String publicKey = getPublicKey(accessToken);
+        abhaLoginPublicKey = publicKey;   // cache for verifyAbhaAddressOtp
+
+        String encryptedAbhaAddress = EncryptionUtil.encrypt(abhaAddress, publicKey);
+
+        Map<String, Object> request = new LinkedHashMap<>();
+        // scope must match the ABDM V3 spec for /request/otp
+        request.put("scope", List.of("abha-address-login", "mobile-verify"));
+        request.put("loginHint", "abha-address");
+        request.put("loginId", encryptedAbhaAddress);
+        request.put("otpSystem", "abdm");
+        if (txnId != null && !txnId.isBlank()) {
+            request.put("txnId", txnId);
+        }
+
+        try {
+            System.out.println("[ABDM] REQUEST OTP REQUEST  URL  : "
+                    + ABHA_BASE_URL + "/abha/api/v3/phr/web/login/abha/request/otp");
+            System.out.println("[ABDM] REQUEST OTP REQUEST  BODY : " + safeJson(request));
+
+            Map<String, Object> response = abdmFeignClient.requestAbhaAddressOtp(
+                    ABHA_BASE_URL,
+                    bearerToken(accessToken),
+                    requestId(),
+                    timestamp(),
+                    request);
+
+            System.out.println("[ABDM] REQUEST OTP RESPONSE BODY : " + safeJson(response));
+
+            return response;
+        }
+        catch (FeignException e) {
+            System.out.println("[ABDM] REQUEST OTP ERROR  STATUS : " + e.status());
+            System.out.println("[ABDM] REQUEST OTP ERROR  BODY   : " + e.contentUTF8());
+            throw buildFeignException("Unable to request ABHA Address OTP", e);
+        }
+    }
+
+    public Map<String, Object> verifyAbhaAddressOtp(String abhaAddress,
+                                                    String txnId,
+                                                    String otp)
+            throws Exception {
+        if (txnId == null || txnId.isBlank()) {
+            throw new IllegalArgumentException("Transaction ID is required.");
+        }
+        if (otp == null || otp.isBlank()) {
+            throw new IllegalArgumentException("OTP is required.");
+        }
+
+        // Reuse the same session token and public key from Request OTP.
+        // Fall back to fresh values only if called in isolation.
+        String accessToken = abhaLoginAccessToken != null ? abhaLoginAccessToken : generateToken();
+        String publicKey   = abhaLoginPublicKey   != null ? abhaLoginPublicKey   : getPublicKey(accessToken);
+
+        String encryptedOtp = EncryptionUtil.encrypt(otp, publicKey);
+
+        // Exact body required by ABDM V3 /phr/web/login/abha/verify:
+        //   scope      : ["abha-address-login", "mobile-verify"]
+        //   authData   : { authMethods: ["otp"], otp: { txnId, otpValue } }
+        Map<String, Object> otpPayload = new LinkedHashMap<>();
+        otpPayload.put("txnId", txnId);
+        otpPayload.put("otpValue", encryptedOtp);
+
+        Map<String, Object> authData = new LinkedHashMap<>();
+        authData.put("authMethods", List.of("otp"));
+        authData.put("otp", otpPayload);
+
+        Map<String, Object> request = new LinkedHashMap<>();
+        request.put("scope", List.of("abha-address-login", "mobile-verify"));
+        request.put("authData", authData);
+
+        // Log body with encrypted OTP masked
+        Map<String, Object> maskedOtp = new LinkedHashMap<>(otpPayload);
+        maskedOtp.put("otpValue", "[ENCRYPTED]");
+        Map<String, Object> maskedAuth = new LinkedHashMap<>(authData);
+        maskedAuth.put("otp", maskedOtp);
+        Map<String, Object> maskedRequest = new LinkedHashMap<>(request);
+        maskedRequest.put("authData", maskedAuth);
+
+        try {
+            System.out.println("[ABDM] VERIFY OTP REQUEST  URL  : "
+                    + ABHA_BASE_URL + "/abha/api/v3/phr/web/login/abha/verify");
+            System.out.println("[ABDM] VERIFY OTP REQUEST  BODY : " + safeJson(maskedRequest));
+
+            Map<String, Object> response =
+                    abdmFeignClient.verifyAbhaAddressOtp(
+                            ABHA_BASE_URL,
+                            bearerToken(accessToken),
+                            requestId(),
+                            timestamp(),
+                            request);
+
+            System.out.println("[ABDM] VERIFY OTP RESPONSE BODY : " + safeJson(response));
+
+            currentXToken = extractXToken(response);
+            currentVerifiedProfile =
+                    objectMapper.convertValue(response, VerifyOtpResponse.class);
+            return response;
+        }
+        catch (FeignException e) {
+            System.out.println("[ABDM] VERIFY OTP ERROR  STATUS : " + e.status());
+            System.out.println("[ABDM] VERIFY OTP ERROR  BODY   : " + e.contentUTF8());
+            throw buildFeignException("Unable to verify ABHA Address OTP", e);
+        }
+    }
+
+    public PatientProfileDto extractVerifiedProfile(Map<String, Object> response,
+                                                    String abhaAddress) {
+        PatientProfileDto profile = PatientProfileDto.fromMap(response);
+        if (profile == null) {
+            profile = new PatientProfileDto();
+        }
+        if ((profile.getAbhaAddress() == null || profile.getAbhaAddress().isBlank())
+                && abhaAddress != null
+                && !abhaAddress.isBlank()) {
+            profile.setAbhaAddress(abhaAddress);
+        }
+        return profile;
+    }
+
+    public Optional<VerifyOtpResponse> fetchVerifiedAbhaProfile(String abhaAddress) {
+        VerifyOtpResponse profile = currentVerifiedProfile;
+        if (profile == null) {
+            return Optional.empty();
+        }
+
+        if (abhaAddress == null || abhaAddress.isBlank()) {
+            return Optional.of(profile);
+        }
+
+        PatientProfileDto patientProfile =
+                PatientProfileDto.fromVerifyOtpResponse(profile);
+        if (patientProfile != null
+                && abhaAddress.equals(patientProfile.getAbhaAddress())) {
+            return Optional.of(profile);
+        }
+
+        return Optional.empty();
+    }
+
     private String extractXToken(VerifyOtpResponse response) {
         if (response == null) {
             return null;
@@ -229,6 +427,29 @@ public class AbdmService {
         return null;
     }
 
+    private String extractXToken(Map<String, Object> response) {
+        if (response == null) {
+            return null;
+        }
+
+        Object tokens = response.get("tokens");
+        if (tokens instanceof Map<?, ?> tokenValues) {
+            Object token = tokenValues.get("token");
+            if (token instanceof String value && !value.isBlank()) {
+                return value;
+            }
+        }
+
+        for (String key : List.of("token", "xToken", "X-Token")) {
+            Object token = response.get(key);
+            if (token instanceof String value && !value.isBlank()) {
+                return value;
+            }
+        }
+
+        return null;
+    }
+
     private String bearerToken(String token) {
         return "Bearer " + token;
     }
@@ -238,7 +459,7 @@ public class AbdmService {
     }
 
     private String timestamp() {
-        return Instant.now().toString();
+        return Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MILLIS).toString();
     }
 
     private String toJson(Object value) {
@@ -249,6 +470,16 @@ public class AbdmService {
             throw new IllegalStateException(
                     "Unable to serialize ABDM response",
                     e);
+        }
+    }
+
+    /** Serialize for debug logging — never throws. */
+    private String safeJson(Object value) {
+        try {
+            return objectMapper.writeValueAsString(value);
+        }
+        catch (Exception e) {
+            return String.valueOf(value);
         }
     }
 
