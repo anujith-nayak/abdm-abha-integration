@@ -18,6 +18,9 @@ public class PatientDto {
     private String pincode;
     private String abhaAddress;
     private String abhaNumber;
+    private String department;
+    private String doctor;
+    private String visitType;
     private boolean abhaLinked;
     private OffsetDateTime linkedDate;
     private String linkedBy;
@@ -41,6 +44,9 @@ public class PatientDto {
         dto.setPincode(patient.getPincode());
         dto.setAbhaAddress(patient.getAbhaAddress());
         dto.setAbhaNumber(patient.getAbhaNumber());
+        dto.setDepartment(patient.getDepartment());
+        dto.setDoctor(patient.getDoctor());
+        dto.setVisitType(patient.getVisitType());
         dto.setAbhaLinked(patient.isAbhaLinked());
         dto.setLinkedDate(patient.getLinkedDate());
         dto.setLinkedBy(patient.getLinkedBy());
@@ -165,6 +171,30 @@ public class PatientDto {
 
     public void setAbhaNumber(String abhaNumber) {
         this.abhaNumber = abhaNumber;
+    }
+
+    public String getDepartment() {
+        return department;
+    }
+
+    public void setDepartment(String department) {
+        this.department = department;
+    }
+
+    public String getDoctor() {
+        return doctor;
+    }
+
+    public void setDoctor(String doctor) {
+        this.doctor = doctor;
+    }
+
+    public String getVisitType() {
+        return visitType;
+    }
+
+    public void setVisitType(String visitType) {
+        this.visitType = visitType;
     }
 
     public boolean isAbhaLinked() {

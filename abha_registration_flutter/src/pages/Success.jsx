@@ -12,6 +12,17 @@ import {
   verifyAbhaAddressOtp
 } from '../services/api.js';
 
+const verifiedProfileStorageKey = 'verifiedAbhaProfile';
+
+const storeVerifiedProfile = (profile) => {
+  if (!profile) {
+    sessionStorage.removeItem(verifiedProfileStorageKey);
+    return;
+  }
+
+  sessionStorage.setItem(verifiedProfileStorageKey, JSON.stringify(profile));
+};
+
 const getNestedValue = (source, keys) => {
   if (!source || typeof source !== 'object') {
     return '';
@@ -173,6 +184,7 @@ function Success({ showAlert }) {
         { abhaAddress: resolvedAddress };
 
       setVerifiedProfile(nextProfile);
+      storeVerifiedProfile(nextProfile);
       showAlert(data?.message || 'ABHA Address Verified Successfully', 'success');
     } catch (error) {
       showAlert(error.message, 'error');
@@ -356,6 +368,20 @@ function Success({ showAlert }) {
                           ))}
                       </Stack>
                     </Box>
+                    <Button
+                      variant="contained"
+                      onClick={() => {
+                        storeVerifiedProfile(verifiedProfile);
+                        navigate('/', {
+                          state: {
+                            fromVerification: true,
+                            verifiedAbhaProfile: verifiedProfile
+                          }
+                        });
+                      }}
+                    >
+                      Continue to Patient Registration
+                    </Button>
                   </Stack>
                 </Paper>
               )}

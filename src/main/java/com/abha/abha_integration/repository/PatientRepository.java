@@ -15,9 +15,7 @@ public interface PatientRepository extends JpaRepository<Patient, Long> {
 
     @Query("""
             select p from Patient p
-            where (:mobileNumber is not null and p.mobileNumber = :mobileNumber)
-               or (:name is not null and lower(p.name) like lower(concat('%', :name, '%')))
+            where :mobileNumber is not null and p.mobileNumber = :mobileNumber
             """)
-    List<Patient> findCandidates(@Param("mobileNumber") String mobileNumber,
-                                 @Param("name") String name);
+    List<Patient> findCandidates(@Param("mobileNumber") String mobileNumber);
 }

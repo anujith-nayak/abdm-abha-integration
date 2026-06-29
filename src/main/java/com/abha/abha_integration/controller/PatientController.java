@@ -33,10 +33,16 @@ public class PatientController {
         return ResponseEntity.ok(patientLinkingService.registerOrLink(request));
     }
 
+    @PostMapping("/determine")
+    public ResponseEntity<PatientLinkResult> determinePatientRegistration(
+            @RequestBody PatientRegistrationRequest request) {
+        return ResponseEntity.ok(patientLinkingService.determineRegistration(request));
+    }
+
     @PostMapping("/link")
     public ResponseEntity<PatientLinkResult> linkPatient(
             @RequestBody PatientRegistrationRequest request) {
-        return ResponseEntity.ok(patientLinkingService.registerOrLink(request));
+        return ResponseEntity.ok(patientLinkingService.linkVerifiedAbhaProfile(request));
     }
 
     @PostMapping("/manual-review")

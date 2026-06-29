@@ -16,11 +16,9 @@ import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
-import java.util.Set;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -46,6 +44,7 @@ public class PatientLinkingService {
         if (request.isWithoutAbha()) {
             Patient patient = createPatient(request.getHospitalProfile(), null, false, request.getLinkedBy());
             patient.setMrdNumber(firstNonBlank(request.getMrdNumber(), patient.getMrdNumber()));
+            applyHospitalFields(patient, request);
             patient = patientRepository.save(patient);
             return result(
                     PatientLinkStatus.PATIENT_CREATED_WITHOUT_ABHA,
@@ -59,8 +58,13 @@ public class PatientLinkingService {
         PatientProfileDto abhaProfile = verifyAbha(request);
         Optional<Patient> existingPatient = findExistingPatient(abhaProfile, request.getMrdNumber());
 
+        if (request.getPatientId() != null) {
+            return linkVerifiedAbhaProfile(request);
+        }
+
         if (existingPatient.isEmpty()) {
             Patient patient = createPatient(abhaProfile, request.getMrdNumber(), true, request.getLinkedBy());
+            applyHospitalFields(patient, request);
             patient = patientRepository.save(patient);
             return result(
                     PatientLinkStatus.NEW_PATIENT_CREATED,
@@ -73,44 +77,80 @@ public class PatientLinkingService {
 
         Patient patient = existingPatient.get();
         PatientProfileDto hospitalProfile = PatientDto.fromEntity(patient).toProfile();
-        List<String> mismatchReasons = compareDemographics(hospitalProfile, abhaProfile);
-        if (!mismatchReasons.isEmpty()) {
-            return result(
-                    PatientLinkStatus.LINK_REVIEW_REQUIRED,
-                    "Patient demographic review is required before ABHA linking.",
-                    patient,
-                    mismatchReasons,
-                    abhaProfile,
-                    hospitalProfile);
+        return result(
+                PatientLinkStatus.RETURNING_PATIENT_FOUND,
+                "Returning patient found. Confirm before linking ABHA Address.",
+                patient,
+                compareDemographics(hospitalProfile, abhaProfile),
+                abhaProfile,
+                hospitalProfile);
+    }
+
+    public PatientLinkResult determineRegistration(PatientRegistrationRequest request) {
+        if (request == null) {
+            throw new IllegalArgumentException("Patient registration request is required.");
         }
 
+        PatientProfileDto abhaProfile = verifyAbha(request);
+        Optional<Patient> existingPatient = findExistingPatient(abhaProfile, null);
+        if (existingPatient.isEmpty()) {
+            return new PatientLinkResult(
+                    PatientLinkStatus.NEW_PATIENT_READY,
+                    "No matching hospital patient was found. Continue as a new patient.",
+                    null,
+                    List.of(),
+                    abhaProfile,
+                    abhaProfile);
+        }
+
+        Patient patient = existingPatient.get();
+        PatientProfileDto hospitalProfile = PatientDto.fromEntity(patient).toProfile();
+        return result(
+                PatientLinkStatus.RETURNING_PATIENT_FOUND,
+                "Returning patient found. Review and confirm ABHA linking.",
+                patient,
+                compareDemographics(hospitalProfile, abhaProfile),
+                abhaProfile,
+                hospitalProfile);
+    }
+
+    @Transactional
+    public PatientLinkResult linkVerifiedAbhaProfile(PatientRegistrationRequest request) {
+        if (request == null || request.getPatientId() == null) {
+            throw new IllegalArgumentException("Matched patient ID is required for ABHA linking.");
+        }
+
+        PatientProfileDto abhaProfile = verifyAbha(request);
+        Patient patient = patientRepository.findById(request.getPatientId())
+                .orElseThrow(() -> new IllegalArgumentException("Matched patient was not found."));
+        PatientProfileDto originalHospitalProfile = PatientDto.fromEntity(patient).toProfile();
+        List<String> mismatchReasons = compareDemographics(originalHospitalProfile, abhaProfile);
+        if (!mismatchReasons.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "ABHA profile does not match the selected hospital patient.");
+        }
         Patient linkedPatient = linkPatient(patient, abhaProfile, request.getLinkedBy());
+        applyHospitalFields(linkedPatient, request);
         linkedPatient = patientRepository.save(linkedPatient);
         return result(
                 PatientLinkStatus.PATIENT_LINKED,
-                "Patient linked successfully.",
+                "ABHA Address linked and hospital demographics updated from verified ABHA profile.",
                 linkedPatient,
-                List.of(),
+                mismatchReasons,
                 abhaProfile,
                 PatientDto.fromEntity(linkedPatient).toProfile());
     }
 
     public PatientProfileDto verifyAbha(PatientRegistrationRequest request) {
-        PatientProfileDto profile = request.getAbhaProfile();
-        if (profile == null) {
-            profile = fetchAbhaProfile(request.getAbhaAddress());
-        }
+        String requestedAddress = firstNonBlank(
+                request.getAbhaAddress(),
+                request.getAbhaProfile() == null ? null : request.getAbhaProfile().getAbhaAddress());
 
-        if (profile == null) {
-            throw new IllegalArgumentException("ABHA profile is required for linking.");
-        }
+        PatientProfileDto profile = abdmService.fetchVerifiedPatientProfile(requestedAddress)
+                .orElseGet(() -> fetchAbhaProfile(requestedAddress));
 
-        if (isBlank(profile.getAbhaAddress()) && !isBlank(request.getAbhaAddress())) {
-            profile.setAbhaAddress(request.getAbhaAddress());
-        }
-
-        if (isBlank(profile.getAbhaAddress())) {
-            throw new IllegalArgumentException("Verified ABHA Address is required for linking.");
+        if (profile == null || isBlank(profile.getAbhaAddress())) {
+            throw new IllegalArgumentException("A successfully verified ABHA profile is required for linking.");
         }
 
         return profile;
@@ -137,13 +177,15 @@ public class PatientLinkingService {
         }
 
         List<Patient> candidates =
-                patientRepository.findCandidates(blankToNull(abhaProfile.getMobileNumber()),
-                        blankToNull(abhaProfile.getName()));
+                patientRepository.findCandidates(blankToNull(abhaProfile.getMobileNumber()));
         if (candidates.isEmpty()) {
             return Optional.empty();
         }
 
         return candidates.stream()
+                .filter(patient -> compareDemographics(
+                        PatientDto.fromEntity(patient).toProfile(),
+                        abhaProfile).isEmpty())
                 .min(Comparator.comparing(patient -> compareDemographics(
                         PatientDto.fromEntity(patient).toProfile(),
                         abhaProfile).size()));
@@ -266,6 +308,17 @@ public class PatientLinkingService {
         setIfAllowed(profile.getPincode(), copyNulls, patient::setPincode);
         setIfAllowed(profile.getAbhaAddress(), copyNulls, patient::setAbhaAddress);
         setIfAllowed(profile.getAbhaNumber(), copyNulls, patient::setAbhaNumber);
+    }
+
+    private void applyHospitalFields(Patient patient, PatientRegistrationRequest request) {
+        if (request == null) {
+            return;
+        }
+
+        setIfAllowed(request.getMrdNumber(), false, patient::setMrdNumber);
+        setIfAllowed(request.getDepartment(), false, patient::setDepartment);
+        setIfAllowed(request.getDoctor(), false, patient::setDoctor);
+        setIfAllowed(request.getVisitType(), false, patient::setVisitType);
     }
 
     private void setIfAllowed(String value,

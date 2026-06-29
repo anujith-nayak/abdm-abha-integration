@@ -2,12 +2,24 @@ package com.abha.abha_integration.dto;
 
 public class PatientRegistrationRequest {
 
+    private Long patientId;
     private String mrdNumber;
     private String abhaAddress;
     private String linkedBy;
+    private String department;
+    private String doctor;
+    private String visitType;
     private boolean withoutAbha;
     private PatientProfileDto abhaProfile;
     private PatientProfileDto hospitalProfile;
+
+    public Long getPatientId() {
+        return patientId;
+    }
+
+    public void setPatientId(Long patientId) {
+        this.patientId = patientId;
+    }
 
     public String getMrdNumber() {
         return mrdNumber;
@@ -31,6 +43,30 @@ public class PatientRegistrationRequest {
 
     public void setLinkedBy(String linkedBy) {
         this.linkedBy = linkedBy;
+    }
+
+    public String getDepartment() {
+        return department;
+    }
+
+    public void setDepartment(String department) {
+        this.department = department;
+    }
+
+    public String getDoctor() {
+        return doctor;
+    }
+
+    public void setDoctor(String doctor) {
+        this.doctor = doctor;
+    }
+
+    public String getVisitType() {
+        return visitType;
+    }
+
+    public void setVisitType(String visitType) {
+        this.visitType = visitType;
     }
 
     public boolean isWithoutAbha() {

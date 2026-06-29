@@ -153,6 +153,24 @@ export const registerPatient = async (payload) => {
   }
 };
 
+export const determinePatientRegistration = async (payload) => {
+  try {
+    const response = await apiClient.post('/api/patients/determine', payload);
+    return response.data;
+  } catch (error) {
+    throw new Error(normalizeError(error, 'Unable to determine patient registration flow.'));
+  }
+};
+
+export const linkPatientAbha = async (payload) => {
+  try {
+    const response = await apiClient.post('/api/patients/link', payload);
+    return response.data;
+  } catch (error) {
+    throw new Error(normalizeError(error, 'Unable to link ABHA Address.'));
+  }
+};
+
 export const sendForManualReview = async (payload) => {
   try {
     const response = await apiClient.post('/api/patients/manual-review', payload);

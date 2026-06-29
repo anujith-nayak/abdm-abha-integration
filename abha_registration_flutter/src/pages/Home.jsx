@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import HealthAndSafetyOutlinedIcon from '@mui/icons-material/HealthAndSafetyOutlined';
 import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
@@ -8,6 +8,7 @@ import {
   Button,
   Container,
   Grid,
+  MenuItem,
   Paper,
   Stack,
   TextField,
@@ -15,8 +16,11 @@ import {
 } from '@mui/material';
 import AadhaarForm from '../components/AadhaarForm.jsx';
 import Loader from '../components/Loader.jsx';
+import { departmentOptions, doctorOptions } from '../config/hospitalOptions.js';
 import {
+  determinePatientRegistration,
   generateOtp,
+  linkPatientAbha,
   registerPatient,
   requestAbhaAddressOtp,
   searchAbhaAddress,
@@ -24,6 +28,32 @@ import {
 } from '../services/api.js';
 
 const aadhaarPattern = /^\d{12}$/;
+const verifiedProfileStorageKey = 'verifiedAbhaProfile';
+
+const profileFields = [
+  ['Name', 'name'],
+  ['Gender', 'gender'],
+  ['DOB', 'dob'],
+  ['Age', 'age'],
+  ['Mobile', 'mobileNumber'],
+  ['Address', 'address'],
+  ['State', 'state'],
+  ['District', 'district'],
+  ['ABHA Number', 'abhaNumber'],
+  ['ABHA Address', 'abhaAddress']
+];
+
+const emptyManualProfile = {
+  name: '',
+  gender: '',
+  dob: '',
+  age: '',
+  mobileNumber: '',
+  address: '',
+  state: '',
+  district: '',
+  pincode: ''
+};
 
 const looksLikeAbhaAddress = (value) => typeof value === 'string' && value.includes('@');
 
@@ -99,6 +129,30 @@ const normalizeAbhaSearchResults = (payload) => {
   return results;
 };
 
+const readStoredVerifiedProfile = () => {
+  try {
+    const stored = sessionStorage.getItem(verifiedProfileStorageKey);
+    return stored ? JSON.parse(stored) : null;
+  } catch {
+    return null;
+  }
+};
+
+const storeVerifiedProfile = (profile) => {
+  if (!profile) {
+    sessionStorage.removeItem(verifiedProfileStorageKey);
+    return;
+  }
+
+  sessionStorage.setItem(verifiedProfileStorageKey, JSON.stringify(profile));
+};
+
+const valuesDiffer = (left, right) => {
+  const leftValue = (left ?? '').toString().trim().toLowerCase();
+  const rightValue = (right ?? '').toString().trim().toLowerCase();
+  return leftValue !== rightValue;
+};
+
 function Home({ showAlert }) {
   const navigate = useNavigate();
   const { state: routeState } = useLocation();
@@ -114,20 +168,68 @@ function Home({ showAlert }) {
   const [txnId, setTxnId] = useState('');
   const [otpValue, setOtpValue] = useState('');
   const [verifyLoading, setVerifyLoading] = useState(false);
-  // If arriving from ABHA verification, pre-populate the verified profile
-  const [verifiedProfile, setVerifiedProfile] = useState(routeState?.verifiedAbhaProfile || null);
+  const [verifiedProfile, setVerifiedProfile] = useState(routeState?.verifiedAbhaProfile || readStoredVerifiedProfile());
   const [verificationMessage, setVerificationMessage] = useState(
     routeState?.fromVerification ? 'ABHA Address Verified Successfully' : ''
   );
   const [mrdNumber, setMrdNumber] = useState('');
   const [linkedBy, setLinkedBy] = useState('portal');
+  const [department, setDepartment] = useState('');
+  const [doctor, setDoctor] = useState('');
+  const [visitType, setVisitType] = useState('');
+  const [manualProfile, setManualProfile] = useState(emptyManualProfile);
+  const [determineLoading, setDetermineLoading] = useState(false);
   const [registerLoading, setRegisterLoading] = useState(false);
   const [registrationResult, setRegistrationResult] = useState(null);
-  // Show patient registration panel directly when arriving with a verified profile
-  // OR when the navbar "Patient Registration" button is clicked
   const [showPatientRegistration, setShowPatientRegistration] = useState(
-    Boolean(routeState?.fromVerification || routeState?.showPatientReg)
+    Boolean(routeState?.fromVerification || routeState?.showPatientReg || routeState?.verifiedAbhaProfile)
   );
+
+  const hospitalSpecificPayload = useMemo(() => ({
+    mrdNumber: mrdNumber.trim() || undefined,
+    department: department.trim() || undefined,
+    doctor: doctor.trim() || undefined,
+    visitType: visitType.trim() || undefined,
+    linkedBy: linkedBy || 'portal'
+  }), [department, doctor, linkedBy, mrdNumber, visitType]);
+
+  const isReturningPatient = registrationResult?.status === 'RETURNING_PATIENT_FOUND';
+  const isNewPatientWithAbha = verifiedProfile && registrationResult?.status === 'NEW_PATIENT_READY';
+
+  useEffect(() => {
+    if (!routeState?.verifiedAbhaProfile) {
+      return;
+    }
+
+    storeVerifiedProfile(routeState.verifiedAbhaProfile);
+    setVerifiedProfile(routeState.verifiedAbhaProfile);
+    setShowPatientRegistration(true);
+  }, [routeState?.verifiedAbhaProfile]);
+
+  useEffect(() => {
+    if (!showPatientRegistration || !verifiedProfile || registrationResult || determineLoading) {
+      return;
+    }
+
+    const determineFlow = async () => {
+      setDetermineLoading(true);
+      try {
+        const result = await determinePatientRegistration({
+          abhaAddress: verifiedProfile.abhaAddress || selectedAbhaAddress,
+          abhaProfile: verifiedProfile,
+          linkedBy: linkedBy || 'portal',
+          withoutAbha: false
+        });
+        setRegistrationResult(result);
+      } catch (error) {
+        showAlert(error.message, 'error');
+      } finally {
+        setDetermineLoading(false);
+      }
+    };
+
+    determineFlow();
+  }, [determineLoading, linkedBy, registrationResult, selectedAbhaAddress, showPatientRegistration, verifiedProfile]);
 
   const handleAadhaarChange = (event) => {
     const value = event.target.value.replace(/\D/g, '').slice(0, 12);
@@ -177,6 +279,13 @@ function Home({ showAlert }) {
     }
   };
 
+  const resetVerifiedState = () => {
+    setVerifiedProfile(null);
+    storeVerifiedProfile(null);
+    setVerificationMessage('');
+    setRegistrationResult(null);
+  };
+
   const handleSearchAbhaAddress = async () => {
     if (!abhaAddress.trim()) {
       showAlert('ABHA Address is required for search.', 'error');
@@ -187,9 +296,7 @@ function Home({ showAlert }) {
     setSelectedAbhaAddress('');
     setTxnId('');
     setOtpValue('');
-    setVerificationMessage('');
-    setVerifiedProfile(null);
-    setRegistrationResult(null);
+    resetVerifiedState();
 
     try {
       const data = await searchAbhaAddress(abhaAddress.trim());
@@ -218,9 +325,7 @@ function Home({ showAlert }) {
     setOtpRequestLoading(true);
     setOtpValue('');
     setTxnId('');
-    setVerificationMessage('');
-    setVerifiedProfile(null);
-    setRegistrationResult(null);
+    resetVerifiedState();
 
     try {
       const data = await requestAbhaAddressOtp({
@@ -256,7 +361,9 @@ function Home({ showAlert }) {
 
       const nextProfile = data?.abhaProfile || null;
       setVerifiedProfile(nextProfile);
+      storeVerifiedProfile(nextProfile);
       setVerificationMessage(data?.message || 'ABHA Address Verified Successfully');
+      setShowPatientRegistration(true);
       showAlert(data?.message || 'ABHA Address Verified Successfully', 'success');
     } catch (error) {
       showAlert(error.message, 'error');
@@ -266,22 +373,21 @@ function Home({ showAlert }) {
   };
 
   const handlePatientRegistration = async () => {
-    if (!verifiedProfile) {
-      showAlert('Verify an ABHA address first to continue patient registration.', 'error');
-      return;
-    }
-
     setRegisterLoading(true);
-    setRegistrationResult(null);
 
     try {
-      const payload = {
-        mrdNumber: mrdNumber.trim() || undefined,
-        abhaAddress: verifiedProfile.abhaAddress || selectedAbhaAddress,
-        abhaProfile: verifiedProfile,
-        linkedBy: linkedBy || 'portal',
-        withoutAbha: false
-      };
+      const payload = verifiedProfile
+        ? {
+            ...hospitalSpecificPayload,
+            abhaAddress: verifiedProfile.abhaAddress || selectedAbhaAddress,
+            abhaProfile: verifiedProfile,
+            withoutAbha: false
+          }
+        : {
+            ...hospitalSpecificPayload,
+            hospitalProfile: manualProfile,
+            withoutAbha: true
+          };
 
       const result = await registerPatient(payload);
       setRegistrationResult(result);
@@ -292,6 +398,157 @@ function Home({ showAlert }) {
       setRegisterLoading(false);
     }
   };
+
+  const handleLinkAbha = async () => {
+    const patientId = registrationResult?.matchedPatient?.id;
+    if (!verifiedProfile || !patientId) {
+      showAlert('A matched returning patient and verified ABHA profile are required.', 'error');
+      return;
+    }
+
+    setRegisterLoading(true);
+    try {
+      const result = await linkPatientAbha({
+        ...hospitalSpecificPayload,
+        patientId,
+        abhaAddress: verifiedProfile.abhaAddress || selectedAbhaAddress,
+        abhaProfile: verifiedProfile,
+        withoutAbha: false
+      });
+      setRegistrationResult(result);
+      showAlert(result?.message || 'ABHA Address linked successfully.', 'success');
+    } catch (error) {
+      showAlert(error.message, 'error');
+    } finally {
+      setRegisterLoading(false);
+    }
+  };
+
+  const handleManualProfileChange = (field) => (event) => {
+    setManualProfile((current) => ({
+      ...current,
+      [field]: event.target.value
+    }));
+  };
+
+  const renderHospitalFields = () => (
+    <>
+      <TextField
+        label="MRD Number"
+        value={mrdNumber}
+        onChange={(e) => setMrdNumber(e.target.value)}
+        fullWidth
+      />
+      <Grid container spacing={1.5}>
+        <Grid item xs={12} sm={6}>
+          <TextField
+            select
+            label="Department"
+            value={department}
+            onChange={(e) => setDepartment(e.target.value)}
+            fullWidth
+          >
+            <MenuItem value="">Select</MenuItem>
+            {departmentOptions.map((option) => (
+              <MenuItem value={option.value} key={option.value}>
+                {option.label}
+              </MenuItem>
+            ))}
+          </TextField>
+        </Grid>
+        <Grid item xs={12} sm={6}>
+          <TextField
+            select
+            label="Doctor"
+            value={doctor}
+            onChange={(e) => setDoctor(e.target.value)}
+            fullWidth
+          >
+            <MenuItem value="">Select</MenuItem>
+            {doctorOptions.map((option) => (
+              <MenuItem value={option.value} key={option.value}>
+                {option.label}
+              </MenuItem>
+            ))}
+          </TextField>
+        </Grid>
+        <Grid item xs={12} sm={6}>
+          <TextField
+            select
+            label="Visit Type"
+            value={visitType}
+            onChange={(e) => setVisitType(e.target.value)}
+            fullWidth
+          >
+            <MenuItem value="">Select</MenuItem>
+            <MenuItem value="OPD">OPD</MenuItem>
+            <MenuItem value="IPD">IPD</MenuItem>
+            <MenuItem value="Emergency">Emergency</MenuItem>
+            <MenuItem value="Follow-up">Follow-up</MenuItem>
+          </TextField>
+        </Grid>
+        <Grid item xs={12} sm={6}>
+          <TextField
+            label="Linked By"
+            value={linkedBy}
+            onChange={(e) => setLinkedBy(e.target.value)}
+            fullWidth
+          />
+        </Grid>
+      </Grid>
+    </>
+  );
+
+  const renderComparison = () => (
+    <Box className="comparison-card">
+      <Grid container spacing={1.5}>
+        <Grid item xs={12} sm={6}>
+          <Typography variant="subtitle2" gutterBottom>Hospital Patient</Typography>
+        </Grid>
+        <Grid item xs={12} sm={6}>
+          <Typography variant="subtitle2" gutterBottom>Verified ABHA Profile</Typography>
+        </Grid>
+        {profileFields.map(([label, key]) => {
+          const hospitalValue = registrationResult.hospitalProfile?.[key] || registrationResult.matchedPatient?.[key] || '';
+          const abhaValue = registrationResult.abhaProfile?.[key] || verifiedProfile?.[key] || '';
+          const different = valuesDiffer(hospitalValue, abhaValue);
+
+          return (
+            <Grid item xs={12} key={key}>
+              <Box className={`comparison-row ${different ? 'difference-row' : ''}`}>
+                <Typography variant="caption" color="text.secondary">{label}</Typography>
+                <Grid container spacing={1.5}>
+                  <Grid item xs={12} sm={6}>
+                    <Typography variant="body2">{hospitalValue || '-'}</Typography>
+                  </Grid>
+                  <Grid item xs={12} sm={6}>
+                    <Typography variant="body2">{abhaValue || '-'}</Typography>
+                  </Grid>
+                </Grid>
+              </Box>
+            </Grid>
+          );
+        })}
+      </Grid>
+    </Box>
+  );
+
+  const renderVerifiedProfile = () => (
+    <Box>
+      <Typography variant="subtitle2" gutterBottom>Verified ABHA Profile</Typography>
+      <Stack spacing={0.5}>
+        {profileFields
+          .map(([label, key]) => [label, verifiedProfile?.[key]])
+          .filter(([, value]) => value)
+          .map(([label, value]) => (
+            <Box className="detail-row" key={label}>
+              <Typography variant="body2" color="text.secondary">{label}</Typography>
+              <Typography variant="body2">{value}</Typography>
+            </Box>
+          ))}
+      </Stack>
+    </Box>
+  );
 
   return (
     <main className="page">
@@ -318,9 +575,9 @@ function Home({ showAlert }) {
               </Box>
             </Stack>
           </Grid>
+
           <Grid item xs={12} md={6}>
             <Stack spacing={2.5}>
-              {/* ── Patient Registration panel (visible after ABHA verification or via nav button) ── */}
               {showPatientRegistration ? (
                 <Paper elevation={0} className="portal-card">
                   <Stack spacing={2.5}>
@@ -330,7 +587,7 @@ function Home({ showAlert }) {
                           Patient Registration
                         </Typography>
                         <Typography variant="body2" color="text.secondary">
-                          Register or link a patient using the verified ABHA profile.
+                          Register a new hospital patient or link a verified ABHA profile.
                         </Typography>
                       </Box>
                       <Button
@@ -338,92 +595,82 @@ function Home({ showAlert }) {
                         size="small"
                         onClick={() => {
                           setShowPatientRegistration(false);
-                          setVerifiedProfile(null);
-                          setVerificationMessage('');
-                          setRegistrationResult(null);
+                          resetVerifiedState();
                           setMrdNumber('');
                         }}
                       >
-                        ✕ Close
+                        Close
                       </Button>
                     </Stack>
 
-                    {verificationMessage && (
-                      <Alert severity="success">{verificationMessage}</Alert>
+                    {verificationMessage && <Alert severity="success">{verificationMessage}</Alert>}
+                    {determineLoading && <Loader message="Checking hospital patient records..." />}
+                    {isNewPatientWithAbha && <Alert severity="info">New Patient</Alert>}
+                    {isReturningPatient && (
+                      <Alert severity={registrationResult.mismatchReasons?.length ? 'warning' : 'success'}>
+                        {registrationResult.mismatchReasons?.length
+                          ? 'Demographic Differences'
+                          : 'Demographics Match'}
+                      </Alert>
                     )}
 
-                    {verifiedProfile && (
-                      <Box>
-                        <Typography variant="subtitle2" gutterBottom>Verified ABHA Profile</Typography>
-                        <Stack spacing={0.5}>
-                          {[
-                            ['Name',         verifiedProfile.name],
-                            ['ABHA Number',  verifiedProfile.abhaNumber],
-                            ['ABHA Address', verifiedProfile.abhaAddress],
-                            ['Gender',       verifiedProfile.gender],
-                            ['Date of Birth',verifiedProfile.dob],
-                            ['Mobile',       verifiedProfile.mobileNumber],
-                          ]
-                            .filter(([, v]) => v)
-                            .map(([label, val]) => (
-                              <Box className="detail-row" key={label}>
-                                <Typography variant="body2" color="text.secondary">{label}</Typography>
-                                <Typography variant="body2">{val}</Typography>
-                              </Box>
-                            ))}
-                        </Stack>
-                      </Box>
+                    {isReturningPatient && renderComparison()}
+                    {verifiedProfile && !isReturningPatient && renderVerifiedProfile()}
+
+                    {!verifiedProfile && (
+                      <Grid container spacing={1.5}>
+                        {[
+                          ['Name', 'name'],
+                          ['Gender', 'gender'],
+                          ['DOB', 'dob'],
+                          ['Age', 'age'],
+                          ['Mobile', 'mobileNumber'],
+                          ['Address', 'address'],
+                          ['State', 'state'],
+                          ['District', 'district'],
+                          ['Pin Code', 'pincode']
+                        ].map(([label, field]) => (
+                          <Grid item xs={12} sm={field === 'address' ? 12 : 6} key={field}>
+                            <TextField
+                              label={label}
+                              value={manualProfile[field]}
+                              onChange={handleManualProfileChange(field)}
+                              fullWidth
+                            />
+                          </Grid>
+                        ))}
+                      </Grid>
                     )}
 
-                    <TextField
-                      label="MRD Number (optional)"
-                      value={mrdNumber}
-                      onChange={(e) => setMrdNumber(e.target.value)}
-                      fullWidth
-                    />
-                    <TextField
-                      label="Linked By"
-                      value={linkedBy}
-                      onChange={(e) => setLinkedBy(e.target.value)}
-                      fullWidth
-                    />
+                    {renderHospitalFields()}
 
-                    <Button
-                      variant="contained"
-                      onClick={handlePatientRegistration}
-                      disabled={registerLoading || !verifiedProfile}
-                    >
-                      {registerLoading ? 'Processing…' : 'Register / Link Patient'}
-                    </Button>
+                    {isReturningPatient ? (
+                      <Button variant="contained" onClick={handleLinkAbha} disabled={registerLoading}>
+                        {registerLoading ? 'Processing...' : 'Link ABHA Address'}
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="contained"
+                        onClick={handlePatientRegistration}
+                        disabled={registerLoading || determineLoading}
+                      >
+                        {registerLoading ? 'Processing...' : verifiedProfile ? 'Continue Registration' : 'Register Patient'}
+                      </Button>
+                    )}
 
-                    {registrationResult && (
+                    {registrationResult && registrationResult.status !== 'NEW_PATIENT_READY' && (
                       <Alert
                         severity={
                           registrationResult.status === 'NEW_PATIENT_CREATED' ||
                           registrationResult.status === 'PATIENT_LINKED'
                             ? 'success'
-                            : registrationResult.status === 'LINK_REVIEW_REQUIRED'
+                            : registrationResult.status === 'RETURNING_PATIENT_FOUND'
                               ? 'warning'
                               : 'info'
                         }
                       >
                         {registrationResult.message || 'Registration completed.'}
-                        {registrationResult.mismatchReasons?.length > 0 && (
-                          <Box component="ul" sx={{ mt: 0.5, pl: 2, mb: 0 }}>
-                            {registrationResult.mismatchReasons.map((reason) => (
-                              <li key={reason}>{reason}</li>
-                            ))}
-                          </Box>
-                        )}
                       </Alert>
-                    )}
-
-                    {registrationResult?.matchedPatient && (
-                      <Box>
-                        <Typography variant="subtitle2" gutterBottom>Matched Patient</Typography>
-                        <Typography variant="body2">Name: {registrationResult.matchedPatient.name || '—'}</Typography>
-                        <Typography variant="body2">MRD: {registrationResult.matchedPatient.mrdNumber || '—'}</Typography>
-                      </Box>
                     )}
                   </Stack>
                 </Paper>

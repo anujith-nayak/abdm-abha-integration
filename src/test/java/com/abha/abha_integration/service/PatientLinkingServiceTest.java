@@ -20,23 +20,27 @@ import org.junit.jupiter.api.Test;
 class PatientLinkingServiceTest {
 
     private PatientRepository patientRepository;
+    private AbdmService abdmService;
     private PatientLinkingService patientLinkingService;
 
     @BeforeEach
     void setUp() {
         patientRepository = mock(PatientRepository.class);
+        abdmService = mock(AbdmService.class);
         patientLinkingService = new PatientLinkingService(
                 patientRepository,
-                mock(AbdmService.class));
+                abdmService);
         when(patientRepository.save(any(Patient.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
     }
 
     @Test
     void createsNewPatientAndLinksAbhaWhenNoHospitalRecordExists() {
-        PatientRegistrationRequest request = requestWithAbha(abhaProfile("Rahul Sharma"));
+        PatientProfileDto profile = abhaProfile("Rahul Sharma");
+        PatientRegistrationRequest request = requestWithAbha(profile);
+        when(abdmService.fetchVerifiedPatientProfile("rahul@abdm")).thenReturn(Optional.of(profile));
         when(patientRepository.findByAbhaAddress("rahul@abdm")).thenReturn(Optional.empty());
-        when(patientRepository.findCandidates("9999999999", "Rahul Sharma")).thenReturn(List.of());
+        when(patientRepository.findCandidates("9999999999")).thenReturn(List.of());
 
         PatientLinkResult result = patientLinkingService.registerOrLink(request);
 
@@ -47,51 +51,59 @@ class PatientLinkingServiceTest {
     }
 
     @Test
-    void autoLinksReturningPatientWhenAllRulesPass() {
+    void findsReturningPatientWhenAllRulesPass() {
         Patient existing = existingPatient("Rahul Sharms");
-        PatientRegistrationRequest request = requestWithAbha(abhaProfile("Rahul Sharma"));
+        PatientProfileDto profile = abhaProfile("Rahul Sharma");
+        PatientRegistrationRequest request = requestWithAbha(profile);
+        when(abdmService.fetchVerifiedPatientProfile("rahul@abdm")).thenReturn(Optional.of(profile));
         when(patientRepository.findByAbhaAddress("rahul@abdm")).thenReturn(Optional.empty());
-        when(patientRepository.findCandidates("9999999999", "Rahul Sharma")).thenReturn(List.of(existing));
+        when(patientRepository.findCandidates("9999999999")).thenReturn(List.of(existing));
 
-        PatientLinkResult result = patientLinkingService.registerOrLink(request);
+        PatientLinkResult result = patientLinkingService.determineRegistration(request);
 
-        assertThat(result.getStatus()).isEqualTo(PatientLinkStatus.PATIENT_LINKED);
+        assertThat(result.getStatus()).isEqualTo(PatientLinkStatus.RETURNING_PATIENT_FOUND);
         assertThat(result.getMismatchReasons()).isEmpty();
-        assertThat(result.getMatchedPatient().getName()).isEqualTo("Rahul Sharma");
-        assertThat(result.getMatchedPatient().isAbhaLinked()).isTrue();
-        assertThat(result.getMatchedPatient().getLinkedDate()).isNotNull();
+        assertThat(result.getMatchedPatient().getName()).isEqualTo("Rahul Sharms");
+        assertThat(result.getMatchedPatient().isAbhaLinked()).isFalse();
     }
 
     @Test
-    void returnsReviewRequiredAndDoesNotLinkWhenDemographicsMismatch() {
+    void treatsMismatchAsNewPatientCandidateMiss() {
         Patient existing = existingPatient("Rahul Sharma");
         existing.setMobileNumber("8888888888");
         existing.setGender("F");
         existing.setDob("1985-01-01");
 
-        PatientRegistrationRequest request = requestWithAbha(abhaProfile("Rahul Sharma"));
+        PatientProfileDto profile = abhaProfile("Rahul Sharma");
+        PatientRegistrationRequest request = requestWithAbha(profile);
+        when(abdmService.fetchVerifiedPatientProfile("rahul@abdm")).thenReturn(Optional.of(profile));
         when(patientRepository.findByAbhaAddress("rahul@abdm")).thenReturn(Optional.empty());
-        when(patientRepository.findCandidates("9999999999", "Rahul Sharma")).thenReturn(List.of(existing));
+        when(patientRepository.findCandidates("9999999999")).thenReturn(List.of(existing));
 
-        PatientLinkResult result = patientLinkingService.registerOrLink(request);
+        PatientLinkResult result = patientLinkingService.determineRegistration(request);
 
-        assertThat(result.getStatus()).isEqualTo(PatientLinkStatus.LINK_REVIEW_REQUIRED);
-        assertThat(result.getMismatchReasons())
-                .contains("Mobile mismatch", "Gender mismatch", "Age mismatch");
+        assertThat(result.getStatus()).isEqualTo(PatientLinkStatus.NEW_PATIENT_READY);
+        assertThat(result.getMatchedPatient()).isNull();
         assertThat(existing.isAbhaLinked()).isFalse();
     }
 
     @Test
-    void mrdFlowUsesSameValidationRules() {
+    void confirmLinkUpdatesReturningPatient() {
         Patient existing = existingPatient("Rahul Sharma");
-        PatientRegistrationRequest request = requestWithAbha(abhaProfile("Rahul Sharma"));
+        PatientProfileDto profile = abhaProfile("Rahul Sharma");
+        PatientRegistrationRequest request = requestWithAbha(profile);
+        request.setPatientId(1L);
         request.setMrdNumber("MRD-7");
-        when(patientRepository.findByMrdNumber("MRD-7")).thenReturn(Optional.of(existing));
+        request.setDepartment("Cardiology");
+        when(abdmService.fetchVerifiedPatientProfile("rahul@abdm")).thenReturn(Optional.of(profile));
+        when(patientRepository.findById(1L)).thenReturn(Optional.of(existing));
 
-        PatientLinkResult result = patientLinkingService.registerOrLink(request);
+        PatientLinkResult result = patientLinkingService.linkVerifiedAbhaProfile(request);
 
         assertThat(result.getStatus()).isEqualTo(PatientLinkStatus.PATIENT_LINKED);
         assertThat(result.getMatchedPatient().isAbhaLinked()).isTrue();
+        assertThat(result.getMatchedPatient().getName()).isEqualTo("Rahul Sharma");
+        assertThat(result.getMatchedPatient().getDepartment()).isEqualTo("Cardiology");
     }
 
     @Test

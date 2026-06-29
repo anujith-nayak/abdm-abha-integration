@@ -33,6 +33,7 @@ public class AbdmService {
     private final ObjectMapper objectMapper;
     private volatile String currentXToken;
     private volatile VerifyOtpResponse currentVerifiedProfile;
+    private volatile PatientProfileDto currentVerifiedPatientProfile;
 
     // Session state for the ABHA address login flow.
     // Cached so that Search, Request OTP and Verify all use the same token + key.
@@ -181,6 +182,7 @@ public class AbdmService {
 
             currentXToken = extractXToken(response);
             currentVerifiedProfile = response;
+            currentVerifiedPatientProfile = PatientProfileDto.fromVerifyOtpResponse(response);
             return toJson(response);
         }
         catch (FeignException e) {
@@ -361,6 +363,7 @@ public class AbdmService {
             currentXToken = extractXToken(response);
             currentVerifiedProfile =
                     objectMapper.convertValue(response, VerifyOtpResponse.class);
+            currentVerifiedPatientProfile = extractVerifiedProfile(response, abhaAddress);
             return response;
         }
         catch (FeignException e) {
@@ -398,6 +401,23 @@ public class AbdmService {
                 PatientProfileDto.fromVerifyOtpResponse(profile);
         if (patientProfile != null
                 && abhaAddress.equals(patientProfile.getAbhaAddress())) {
+            return Optional.of(profile);
+        }
+
+        return Optional.empty();
+    }
+
+    public Optional<PatientProfileDto> fetchVerifiedPatientProfile(String abhaAddress) {
+        PatientProfileDto profile = currentVerifiedPatientProfile;
+        if (profile == null) {
+            return Optional.empty();
+        }
+
+        if (abhaAddress == null || abhaAddress.isBlank()) {
+            return Optional.of(profile);
+        }
+
+        if (abhaAddress.equals(profile.getAbhaAddress())) {
             return Optional.of(profile);
         }
 

@@ -216,6 +216,25 @@ body {
   border-color: #ffd8a8;
 }
 
+.comparison-card {
+  padding: 16px;
+  background: #f8fbfd;
+  border: 1px solid rgba(16, 42, 67, 0.08);
+  border-radius: 8px;
+}
+
+.comparison-row {
+  padding: 10px 12px;
+  background: #ffffff;
+  border: 1px solid rgba(16, 42, 67, 0.08);
+  border-radius: 8px;
+}
+
+.difference-row {
+  background: #fff7ed;
+  border-color: #fed7aa;
+}
+
 @media (max-width: 700px) {
   .navbar-toolbar {
     min-height: 64px;
