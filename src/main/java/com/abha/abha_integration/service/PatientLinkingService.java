@@ -333,8 +333,9 @@ public class PatientLinkingService {
                                PatientProfileDto abhaProfile) {
         Optional<Integer> hospitalAge = ageOf(hospitalProfile);
         Optional<Integer> abhaAge = ageOf(abhaProfile);
+        // If either side has no valid age, the field was not supplied — skip comparison.
         if (hospitalAge.isEmpty() || abhaAge.isEmpty()) {
-            return false;
+            return true;
         }
         return Math.abs(hospitalAge.get() - abhaAge.get()) <= MAX_AGE_DIFFERENCE;
     }
@@ -345,7 +346,8 @@ public class PatientLinkingService {
         }
 
         Optional<Integer> age = parseInteger(profile.getAge());
-        if (age.isPresent()) {
+        // Treat age <= 0 (including the sandbox's placeholder 0) as unknown.
+        if (age.isPresent() && age.get() > 0) {
             return age;
         }
 
@@ -404,8 +406,9 @@ public class PatientLinkingService {
     private boolean nameMatches(String hospitalName, String abhaName) {
         String left = comparableName(hospitalName);
         String right = comparableName(abhaName);
+        // If either side is missing, the field was not supplied — skip comparison.
         if (left.isBlank() || right.isBlank()) {
-            return false;
+            return true;
         }
 
         if (left.equals(right)) {
@@ -450,7 +453,11 @@ public class PatientLinkingService {
     }
 
     private boolean equalsExact(String left, String right) {
-        return left != null && left.equals(right);
+        // If either side is missing, the field was not supplied — skip comparison.
+        if (isBlank(left) || isBlank(right)) {
+            return true;
+        }
+        return left.equalsIgnoreCase(right);
     }
 
     private String blankToNull(String value) {

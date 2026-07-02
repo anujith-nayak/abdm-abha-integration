@@ -152,6 +152,20 @@ public class AbhaController {
                             request.getTxnId(),
                             request.getOtp());
 
+            // ABDM returns HTTP 200 even when OTP verification fails, signalled by
+            // authResult != "success". Surface the failure as HTTP 400 so the
+            // frontend does not treat it as a successful verification.
+            Object authResult = abdmResponse.get("authResult");
+            if (!"success".equalsIgnoreCase(String.valueOf(authResult))) {
+                return ResponseEntity
+                        .status(HttpStatus.BAD_REQUEST)
+                        .body(Map.of(
+                                "authResult", String.valueOf(authResult),
+                                "message",    abdmResponse.getOrDefault(
+                                                      "message",
+                                                      "OTP verification failed.")));
+            }
+
             PatientProfileDto abhaProfile =
                     abdmService.extractVerifiedProfile(
                             abdmResponse,

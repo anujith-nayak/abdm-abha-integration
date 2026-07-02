@@ -1,5 +1,6 @@
 package com.abha.abha_integration.dto;
 
+import java.util.List;
 import java.util.Map;
 
 public class PatientProfileDto {
@@ -65,7 +66,13 @@ public class PatientProfileDto {
         profile.setName(firstNested(source, "name", "fullName", "patientName", "firstName"));
         profile.setGender(firstNested(source, "gender"));
         profile.setDob(firstNested(source, "dob", "dateOfBirth", "yearOfBirth"));
-        profile.setAge(firstNested(source, "age"));
+        // ABDM Sandbox returns age=0 when demographic age is unavailable.
+        // Treat it as unknown instead of a real age.
+        String age = firstNested(source, "age");
+        if ("0".equals(age)) {
+            age = null;
+        }
+        profile.setAge(age);
         profile.setMobileNumber(firstNested(source, "mobileNumber", "mobile", "phone"));
         profile.setAbhaNumber(firstNested(source, "abhaNumber", "ABHANumber", "healthIdNumber"));
         profile.setAbhaAddress(firstNested(source, "abhaAddress", "healthId", "preferredAbhaAddress", "phrAddress"));
@@ -95,6 +102,7 @@ public class PatientProfileDto {
     }
 
     private static String firstNested(Map<String, Object> source, String... keys) {
+        // 1. Check direct keys on this level first
         for (String key : keys) {
             String directValue = value(source, key);
             if (directValue != null && !directValue.isBlank()) {
@@ -102,17 +110,40 @@ public class PatientProfileDto {
             }
         }
 
+        // 2. Recurse into nested Maps and Lists
         for (Object nested : source.values()) {
-            if (nested instanceof Map<?, ?> nestedMap) {
-                Map<String, Object> nestedValues = new java.util.LinkedHashMap<>();
-                for (Map.Entry<?, ?> entry : nestedMap.entrySet()) {
-                    if (entry.getKey() != null) {
-                        nestedValues.put(String.valueOf(entry.getKey()), entry.getValue());
-                    }
+            String found = searchNestedObject(nested, keys);
+            if (found != null && !found.isBlank()) {
+                return found;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Recursively searches for any of the given keys inside a nested object,
+     * which may be a Map, a List of Maps, or a List of Lists.
+     */
+    @SuppressWarnings("unchecked")
+    private static String searchNestedObject(Object obj, String... keys) {
+        if (obj instanceof Map<?, ?> rawMap) {
+            // Convert to Map<String, Object> and recurse
+            Map<String, Object> nestedMap = new java.util.LinkedHashMap<>();
+            for (Map.Entry<?, ?> entry : rawMap.entrySet()) {
+                if (entry.getKey() != null) {
+                    nestedMap.put(String.valueOf(entry.getKey()), entry.getValue());
                 }
-                String nestedValue = firstNested(nestedValues, keys);
-                if (nestedValue != null && !nestedValue.isBlank()) {
-                    return nestedValue;
+            }
+            return firstNested(nestedMap, keys);
+        }
+
+        if (obj instanceof List<?> list) {
+            // Iterate every element in the list and recurse
+            for (Object item : list) {
+                String found = searchNestedObject(item, keys);
+                if (found != null && !found.isBlank()) {
+                    return found;
                 }
             }
         }

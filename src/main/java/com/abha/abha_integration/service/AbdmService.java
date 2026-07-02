@@ -360,6 +360,15 @@ public class AbdmService {
 
             System.out.println("[ABDM] VERIFY OTP RESPONSE BODY : " + safeJson(response));
 
+            // Guard: ABDM returns HTTP 200 even on OTP failure, with authResult="failed".
+            // Only cache session state when the verification actually succeeded.
+            Object authResult = response.get("authResult");
+            if (!"success".equalsIgnoreCase(String.valueOf(authResult))) {
+                // Return the raw ABDM response without caching anything.
+                // The controller will surface the error message to the caller.
+                return response;
+            }
+
             currentXToken = extractXToken(response);
             currentVerifiedProfile =
                     objectMapper.convertValue(response, VerifyOtpResponse.class);
@@ -375,6 +384,8 @@ public class AbdmService {
 
     public PatientProfileDto extractVerifiedProfile(Map<String, Object> response,
                                                     String abhaAddress) {
+        System.out.println("[ABDM] RAW VERIFY OTP RESPONSE : " + response);
+
         PatientProfileDto profile = PatientProfileDto.fromMap(response);
         if (profile == null) {
             profile = new PatientProfileDto();
@@ -384,6 +395,16 @@ public class AbdmService {
                 && !abhaAddress.isBlank()) {
             profile.setAbhaAddress(abhaAddress);
         }
+
+        System.out.println("[ABDM] PARSED PatientProfileDto :");
+        System.out.println("  Name        : " + profile.getName());
+        System.out.println("  ABHA Number : " + profile.getAbhaNumber());
+        System.out.println("  ABHA Address: " + profile.getAbhaAddress());
+        System.out.println("  Age         : " + profile.getAge());
+        System.out.println("  Gender      : " + profile.getGender());
+        System.out.println("  DOB         : " + profile.getDob());
+        System.out.println("  Mobile      : " + profile.getMobileNumber());
+
         return profile;
     }
 
